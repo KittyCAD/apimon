@@ -1,0 +1,9 @@
+- name: test
+  endpoint: !FileMass # this is called "!tag" syntax
+    file_path: testdata/cube.obj
+    src_format: obj
+    material_density: 1.0
+    expected:
+      mass: 1.0
+      src_format: obj
+      status: Completed
