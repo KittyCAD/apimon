@@ -6,13 +6,16 @@ authors = ["Adam Chalmers <adam.chalmers@kittycad.io>"]
 description = "API monitoring tool"
 repository = "https://github.com/KittyCAD/apimon"
 publish = false
+rust-version = "1.70"
 
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+autometrics = { version = "0.5.0", features = ["prometheus-client", "prometheus-exporter"] }
 bytes = "1.4.0"
 camino = { version = "1.1.4", features = ["serde1"] }
+hyper = { version = "0.14.26", features = ["server"] }
 kittycad = "0.2.10"
 serde = "1.0.164"
 serde_json = "1.0.96"
@@ -23,3 +26,6 @@ slog-json = "2.6.1"
 slog-term = "2.9.0"
 thiserror = "1.0.40"
 tokio = { version = "1.28.2", features = ["macros", "rt-multi-thread", "fs"] }
+
+[build-dependencies]
+vergen = { version = "8.2.1", features = ["git", "gitcl"] }
