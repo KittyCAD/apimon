@@ -1,0 +1,4 @@
+period: { secs: 60, nanos: 0 }
+user_agent: kc-apimon
+metrics_addr: 0.0.0.0:8001
+log_json: false
