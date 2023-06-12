@@ -22,7 +22,7 @@ async fn main() {
         .unwrap_or_else(|e| terminate(&format!("Failed to read KITTYCAD_API_TOKEN: {e}")));
 
     // Start the metrics server
-    tokio::task::spawn(metrics::serve_metrics(config.metrics_addr, logger.clone()));
+    tokio::task::spawn(metrics::serve(config.metrics_addr, logger.clone()));
 
     // Run the probes
     let mut client = kittycad::Client::new(api_token);

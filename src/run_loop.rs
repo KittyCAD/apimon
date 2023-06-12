@@ -72,6 +72,10 @@ pub async fn probe_endpoint(probe: &Probe, client: Arc<kittycad::Client>) -> Res
             )
             .await
         }
+        Endpoint::Ping => {
+            let _pong = client.meta().ping().await?;
+            Ok(())
+        }
     }
 }
 
@@ -86,8 +90,7 @@ async fn probe_file_mass(
     let resp = client
         .file()
         .create_mass(material_density, src_format, &bytes::Bytes::from(file))
-        .await
-        .map_err(Error::ApiClient)?;
+        .await?;
     if expected.matches_actual(&resp) {
         Ok(())
     } else {
@@ -102,7 +105,7 @@ async fn probe_file_mass(
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("KittyCAD API client returned an error: {0}")]
-    ApiClient(kittycad::types::error::Error),
+    ApiClient(#[from] kittycad::types::error::Error),
     #[error("KittyCAD API sent {actual} but probe expected {expected}")]
     UnexpectedApiResponse { expected: String, actual: String },
 }

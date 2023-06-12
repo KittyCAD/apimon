@@ -24,6 +24,7 @@ pub enum Endpoint {
         material_density: f64,
         expected: ExpectedFileMass,
     },
+    Ping,
 }
 
 /// Properties of `kittycad::types::FileMass` to validate.

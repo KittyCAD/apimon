@@ -1,4 +1,4 @@
-- name: test
+- name: mass_of_cube
   endpoint: !FileMass # this is called "!tag" syntax
     file_path: testdata/cube.obj
     src_format: obj
@@ -7,3 +7,5 @@
       mass: 1.0
       src_format: obj
       status: Completed
+- name: ping
+  endpoint: !Ping
