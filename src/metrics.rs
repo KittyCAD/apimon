@@ -7,10 +7,10 @@ use hyper::{
 };
 use slog::{error, Logger};
 
-pub async fn serve_metrics(addr: SocketAddr, logger: Logger) {
+pub async fn serve(addr: SocketAddr, logger: Logger) {
     if let Err(e) = Server::bind(&addr)
         .serve(make_service_fn(|_conn| async {
-            Ok::<_, Infallible>(service_fn(handle_metrics))
+            Ok::<_, Infallible>(service_fn(endpoint))
         }))
         .await
     {
@@ -19,7 +19,7 @@ pub async fn serve_metrics(addr: SocketAddr, logger: Logger) {
 }
 
 /// Serves prometheus metrics
-async fn handle_metrics(_req: Request<Body>) -> Result<Response<Body>, EncodingError> {
+async fn endpoint(_req: Request<Body>) -> Result<Response<Body>, EncodingError> {
     let body = autometrics::prometheus_exporter::encode_to_string()?;
     Ok(Response::new(Body::from(body)))
 }
