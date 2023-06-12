@@ -1,8 +1,9 @@
 use run_loop::run_loop;
-use slog::Logger;
+use slog::{info, Logger};
 use std::fs::read_to_string;
 
 mod config;
+mod metrics;
 mod probe;
 mod run_loop;
 
@@ -13,16 +14,21 @@ const PROBES_PATH: &str = "configuration/probes.yaml";
 async fn main() {
     // Read all necessary configuration and data
     let config = read_config();
+    let logger = new_logger(config.log_json);
+    info!(logger, "starting"; "config" => ?config);
+
     let probes = read_probes();
     let api_token = std::env::var("KITTYCAD_API_TOKEN")
         .unwrap_or_else(|e| terminate(&format!("Failed to read KITTYCAD_API_TOKEN: {e}")));
+
+    // Start the metrics server
+    tokio::task::spawn(metrics::serve_metrics(config.metrics_addr, logger.clone()));
 
     // Run the probes
     let mut client = kittycad::Client::new(api_token);
     if let Some(ref url) = config.base_url {
         client.set_base_url(url);
     }
-    let logger = new_logger(config.log_json);
     run_loop(client, config, probes, logger).await;
 }
 
@@ -47,6 +53,8 @@ fn terminate(why: &str) -> ! {
     std::process::exit(1);
 }
 
+/// Create a colourful, terminal-based logger for local dev,
+/// or a JSON logger for production.
 fn new_logger(json: bool) -> Logger {
     use slog::Drain;
     use slog_async::Async;

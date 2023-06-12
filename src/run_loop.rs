@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use camino::Utf8PathBuf;
-use slog::Logger;
+use kittycad::types::FileImportFormat;
+use slog::{o, Logger};
 
-use crate::probe::{Endpoint, Probe};
+use crate::probe::{Endpoint, ExpectedFileMass, Probe};
 
 pub async fn run_loop(
     client: kittycad::Client,
@@ -19,32 +19,17 @@ pub async fn run_loop(
         for probe in probes.clone() {
             let probe_client = client.clone();
             let name = probe.name.clone();
+            let logger = logger.new(o!("probe_name" => name.clone()));
             let handle = tokio::spawn(async move {
-                let probe = probe.clone();
-                run_probe(&probe, probe_client).await
+                let _ = run_and_report(probe, probe_client, logger).await;
             });
-            handles.push((handle, name));
+            handles.push((name, handle));
         }
 
-        // Collect all probes
-        let mut results = Vec::with_capacity(n);
-        for (handle, name) in handles {
-            results.push((name, handle.await));
-        }
-
-        // Handle results
-        for (probe_name, result) in results {
-            let logger = logger.new(slog::o!("probe_name" => probe_name));
-            match result {
-                Ok(Ok(())) => {
-                    slog::info!(logger, "probe succeeded");
-                }
-                Ok(Err(err)) => {
-                    slog::error!(logger, "probe failed"; "error" => format!("{}", err));
-                }
-                Err(err) => {
-                    slog::error!(logger, "probe panicked"; "panic_error" => format!("{:?}", err));
-                }
+        // Wait for all probes.
+        for (name, handle) in handles {
+            if let Err(e) = handle.await {
+                slog::error!(logger, "probe panicked"; "probe_name" => name, "panic" => ?e);
             }
         }
 
@@ -53,7 +38,23 @@ pub async fn run_loop(
     }
 }
 
-pub async fn run_probe(probe: &Probe, client: Arc<kittycad::Client>) -> Result<(), Error> {
+/// Runs the probe and reports its results (via logs and metrics).
+async fn run_and_report(probe: Probe, client: Arc<kittycad::Client>, logger: Logger) {
+    let result = probe_endpoint(&probe, client).await;
+    match result {
+        Ok(()) => {
+            slog::info!(logger, "probe succeeded");
+        }
+        Err(err) => {
+            slog::error!(logger, "probe failed"; "error" => format!("{}", err));
+        }
+    }
+}
+
+/// Probe the specified API endpoint, check it returns the expected response.
+/// The probe could fail because the API is unavailable, or because it gave an unexpected result.
+/// If this returns OK, the endpoint is "healthy". Otherwise there's a problem.
+pub async fn probe_endpoint(probe: &Probe, client: Arc<kittycad::Client>) -> Result<(), Error> {
     match &probe.endpoint {
         Endpoint::FileMass {
             file_path,
@@ -61,41 +62,45 @@ pub async fn run_probe(probe: &Probe, client: Arc<kittycad::Client>) -> Result<(
             material_density,
             expected,
         } => {
-            let file = tokio::fs::read(file_path)
-                .await
-                .map_err(|err| Error::BadInputFile {
-                    file_path: file_path.clone(),
-                    err,
-                })?;
-            let resp = client
-                .file()
-                .create_mass(
-                    *material_density,
-                    src_format.clone(),
-                    &bytes::Bytes::from(file),
-                )
-                .await
-                .map_err(Error::ApiClient)?;
-            if expected.matches_actual(&resp) {
-                Ok(())
-            } else {
-                Err(Error::UnexpectedApiResponse {
-                    expected: format!("{expected:?}"),
-                    actual: format!("{resp:?}"),
-                })
-            }
+            let file = tokio::fs::read(file_path).await.unwrap();
+            probe_file_mass(
+                file,
+                src_format.clone(),
+                *material_density,
+                expected,
+                client,
+            )
+            .await
         }
+    }
+}
+
+#[autometrics::autometrics]
+async fn probe_file_mass(
+    file: Vec<u8>,
+    src_format: FileImportFormat,
+    material_density: f64,
+    expected: &ExpectedFileMass,
+    client: Arc<kittycad::Client>,
+) -> Result<(), Error> {
+    let resp = client
+        .file()
+        .create_mass(material_density, src_format, &bytes::Bytes::from(file))
+        .await
+        .map_err(Error::ApiClient)?;
+    if expected.matches_actual(&resp) {
+        Ok(())
+    } else {
+        Err(Error::UnexpectedApiResponse {
+            expected: format!("{expected:?}"),
+            actual: format!("{resp:?}"),
+        })
     }
 }
 
 /// Errors the probe can detect.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("Could not read input file {file_path}: {err}")]
-    BadInputFile {
-        file_path: Utf8PathBuf,
-        err: std::io::Error,
-    },
     #[error("KittyCAD API client returned an error: {0}")]
     ApiClient(kittycad::types::error::Error),
     #[error("KittyCAD API sent {actual} but probe expected {expected}")]

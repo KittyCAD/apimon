@@ -1,0 +1,50 @@
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '**.rs'
+      - Cargo.toml
+      - Cargo.lock
+      - .github/workflows/cargo-test.yml
+      - 'rust-toolchain.toml'
+  pull_request:
+    paths:
+      - '**.rs'
+      - Cargo.toml
+      - Cargo.lock
+      - .github/workflows/cargo-test.yml
+      - 'rust-toolchain.toml'
+permissions: read-all
+name: cargo test
+jobs:
+  cargotest:
+    name: cargo test
+    runs-on: ubuntu-latest-8-cores
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: Install latest rust
+        uses: actions-rs/toolchain@v1
+        with:
+            toolchain: stable
+            override: true
+            components: rustfmt, clippy
+
+      - uses: taiki-e/install-action@nextest
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2.4.0
+
+      - name: cargo test
+        shell: bash
+        run: |
+          cargo nextest run 
+        env:
+          RUST_BACKTRACE: 1
+
+      - name: Dump docker logs on failure
+        if: failure()
+        uses: jwalton/gh-docker-logs@v2

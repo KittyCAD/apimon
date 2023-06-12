@@ -6,7 +6,7 @@ use serde::Deserialize;
 pub struct Config {
     pub period: Duration,
     pub user_agent: String,
-    pub metrics_port: u16,
+    pub metrics_addr: std::net::SocketAddr,
     pub base_url: Option<String>,
     pub log_json: bool,
 }
