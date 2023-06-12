@@ -1,23 +1,23 @@
+use camino::Utf8Path;
 use run_loop::run_loop;
 use slog::{info, Logger};
 use std::fs::read_to_string;
 
+mod args;
 mod config;
 mod metrics;
 mod probe;
 mod run_loop;
 
-const CONFIG_PATH: &str = "configuration/config.yaml";
-const PROBES_PATH: &str = "configuration/probes.yaml";
-
 #[tokio::main]
 async fn main() {
     // Read all necessary configuration and data
-    let config = read_config();
+    let args = args::parse_args().unwrap_or_else(|e| terminate(&e.to_string()));
+    let config = read_config(&args.config_file);
     let logger = new_logger(config.log_json);
     info!(logger, "starting"; "config" => ?config);
 
-    let probes = read_probes();
+    let probes = read_probes(&args.probes_file);
     let api_token = std::env::var("KITTYCAD_API_TOKEN")
         .unwrap_or_else(|e| terminate(&format!("Failed to read KITTYCAD_API_TOKEN: {e}")));
 
@@ -33,19 +33,19 @@ async fn main() {
 }
 
 /// Terminates if data is missing or invalid.
-fn read_config() -> config::Config {
-    let config_file = read_to_string(CONFIG_PATH)
-        .unwrap_or_else(|e| terminate(&format!("Failed to read {CONFIG_PATH}: {e}")));
+fn read_config(config_path: &Utf8Path) -> config::Config {
+    let config_file = read_to_string(config_path)
+        .unwrap_or_else(|e| terminate(&format!("Failed to read {config_path}: {e}")));
     serde_yaml::from_str(&config_file)
-        .unwrap_or_else(|e| terminate(&format!("Failed to parse {CONFIG_PATH}: {e}")))
+        .unwrap_or_else(|e| terminate(&format!("Failed to parse {config_path}: {e}")))
 }
 
 /// Terminates if data is missing or invalid.
-fn read_probes() -> Vec<probe::Probe> {
-    let probes_file = read_to_string(PROBES_PATH)
-        .unwrap_or_else(|e| terminate(&format!("Failed to read {PROBES_PATH}: {e}")));
+fn read_probes(probes_path: &Utf8Path) -> Vec<probe::Probe> {
+    let probes_file = read_to_string(probes_path)
+        .unwrap_or_else(|e| terminate(&format!("Failed to read {probes_path}: {e}")));
     serde_yaml::from_str(&probes_file)
-        .unwrap_or_else(|e| terminate(&format!("Failed to parse {PROBES_PATH}: {e}")))
+        .unwrap_or_else(|e| terminate(&format!("Failed to parse {probes_path}: {e}")))
 }
 
 fn terminate(why: &str) -> ! {
