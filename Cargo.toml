@@ -15,7 +15,7 @@ rust-version = "1.70"
 autometrics = { version = "0.5.0", features = ["prometheus-client", "prometheus-exporter"] }
 bytes = "1.4.0"
 camino = { version = "1.1.4", features = ["serde1"] }
-hyper = { version = "0.14.26", features = ["server"] }
+hyper = { version = "0.14.27", features = ["server"] }
 kittycad = "0.2.10"
 pico-args = "0.5.0"
 serde = "1.0.164"
