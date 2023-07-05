@@ -25,7 +25,7 @@ slog = "2.7.0"
 slog-async = "2.7.0"
 slog-json = "2.6.1"
 slog-term = "2.9.0"
-thiserror = "1.0.40"
+thiserror = "1.0.41"
 tokio = { version = "1.29.1", features = ["macros", "rt-multi-thread", "fs"] }
 
 [build-dependencies]
