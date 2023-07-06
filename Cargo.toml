@@ -29,4 +29,4 @@ thiserror = "1.0.40"
 tokio = { version = "1.29.1", features = ["macros", "rt-multi-thread", "fs"] }
 
 [build-dependencies]
-vergen = { version = "8.2.3", features = ["git", "gitcl"] }
+vergen = { version = "8.2.4", features = ["git", "gitcl"] }
