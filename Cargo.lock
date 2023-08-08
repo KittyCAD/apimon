@@ -750,8 +750,8 @@ dependencies = [
 
 [[package]]
 name = "kittycad"
-version = "0.2.12"
-source = "git+https://github.com/KittyCAD/kittycad.rs?branch=main#277183ffa00050032a0b70a33f0f3835147ffd71"
+version = "0.2.13"
+source = "git+https://github.com/KittyCAD/kittycad.rs?branch=main#a1c117865d437fb2a33e5f4c55738838aabc5cdf"
 dependencies = [
  "anyhow",
  "async-trait",
