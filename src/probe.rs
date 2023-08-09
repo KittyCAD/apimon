@@ -1,5 +1,5 @@
 use camino::Utf8PathBuf;
-use kittycad::types::{FileImportFormat, FileMass};
+use kittycad::types::{FileImportFormat, FileMass, UnitDensity, UnitMass};
 use serde::Deserialize;
 use std::string::ToString;
 
@@ -22,6 +22,8 @@ pub enum Endpoint {
         file_path: Utf8PathBuf,
         src_format: FileImportFormat,
         material_density: f64,
+        material_density_unit: Option<UnitDensity>,
+        mass_unit: Option<UnitMass>,
         expected: ExpectedFileMass,
     },
     Ping,
