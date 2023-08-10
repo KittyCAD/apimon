@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
-use kittycad::types::{FileImportFormat, UnitDensity, UnitMass};
 use slog::{o, Logger};
 
-use crate::probe::{Endpoint, ExpectedFileMass, Probe};
+use crate::probe::{Endpoint, Probe, ProbeMass};
 
 pub async fn run_loop(
     client: kittycad::Client,
@@ -40,7 +39,7 @@ pub async fn run_loop(
 
 /// Runs the probe and reports its results (via logs and metrics).
 async fn run_and_report(probe: Probe, client: Arc<kittycad::Client>, logger: Logger) {
-    let result = probe_endpoint(&probe, client).await;
+    let result = probe_endpoint(probe, client).await;
     match result {
         Ok(()) => {
             slog::info!(logger, "probe succeeded");
@@ -54,27 +53,11 @@ async fn run_and_report(probe: Probe, client: Arc<kittycad::Client>, logger: Log
 /// Probe the specified API endpoint, check it returns the expected response.
 /// The probe could fail because the API is unavailable, or because it gave an unexpected result.
 /// If this returns OK, the endpoint is "healthy". Otherwise there's a problem.
-pub async fn probe_endpoint(probe: &Probe, client: Arc<kittycad::Client>) -> Result<(), Error> {
-    match &probe.endpoint {
-        Endpoint::FileMass {
-            file_path,
-            src_format,
-            material_density,
-            expected,
-            material_density_unit,
-            mass_unit,
-        } => {
+pub async fn probe_endpoint(probe: Probe, client: Arc<kittycad::Client>) -> Result<(), Error> {
+    match probe.endpoint {
+        Endpoint::FileMass { file_path, probe } => {
             let file = tokio::fs::read(file_path).await.unwrap();
-            probe_file_mass(
-                file,
-                src_format.clone(),
-                *material_density,
-                material_density_unit.clone(),
-                mass_unit.clone(),
-                expected,
-                client,
-            )
-            .await
+            probe_file_mass(file, probe, client).await
         }
         Endpoint::Ping => {
             let _pong = client.meta().ping().await?;
@@ -86,11 +69,13 @@ pub async fn probe_endpoint(probe: &Probe, client: Arc<kittycad::Client>) -> Res
 #[autometrics::autometrics]
 async fn probe_file_mass(
     file: Vec<u8>,
-    src_format: FileImportFormat,
-    material_density: f64,
-    material_density_unit: Option<UnitDensity>,
-    mass_unit: Option<UnitMass>,
-    expected: &ExpectedFileMass,
+    ProbeMass {
+        src_format,
+        material_density,
+        material_density_unit,
+        mass_unit,
+        expected,
+    }: ProbeMass,
     client: Arc<kittycad::Client>,
 ) -> Result<(), Error> {
     let resp = client
