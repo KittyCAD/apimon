@@ -20,13 +20,20 @@ pub struct Probe {
 pub enum Endpoint {
     FileMass {
         file_path: Utf8PathBuf,
-        src_format: FileImportFormat,
-        material_density: f64,
-        material_density_unit: Option<UnitDensity>,
-        mass_unit: Option<UnitMass>,
-        expected: ExpectedFileMass,
+        #[serde(flatten)]
+        probe: ProbeMass,
     },
     Ping,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[cfg_attr(test, derive(serde::Serialize))]
+pub struct ProbeMass {
+    pub src_format: FileImportFormat,
+    pub material_density: f64,
+    pub material_density_unit: Option<UnitDensity>,
+    pub mass_unit: Option<UnitMass>,
+    pub expected: ExpectedFileMass,
 }
 
 /// Properties of `kittycad::types::FileMass` to validate.
