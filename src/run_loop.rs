@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use kittycad::types::FileImportFormat;
+use kittycad::types::{FileImportFormat, UnitDensity, UnitMass};
 use slog::{o, Logger};
 
 use crate::probe::{Endpoint, ExpectedFileMass, Probe};
@@ -61,12 +61,16 @@ pub async fn probe_endpoint(probe: &Probe, client: Arc<kittycad::Client>) -> Res
             src_format,
             material_density,
             expected,
+            material_density_unit,
+            mass_unit,
         } => {
             let file = tokio::fs::read(file_path).await.unwrap();
             probe_file_mass(
                 file,
                 src_format.clone(),
                 *material_density,
+                material_density_unit.clone(),
+                mass_unit.clone(),
                 expected,
                 client,
             )
@@ -84,12 +88,20 @@ async fn probe_file_mass(
     file: Vec<u8>,
     src_format: FileImportFormat,
     material_density: f64,
+    material_density_unit: Option<UnitDensity>,
+    mass_unit: Option<UnitMass>,
     expected: &ExpectedFileMass,
     client: Arc<kittycad::Client>,
 ) -> Result<(), Error> {
     let resp = client
         .file()
-        .create_mass(material_density, src_format, &bytes::Bytes::from(file))
+        .create_mass(
+            material_density,
+            material_density_unit,
+            mass_unit,
+            src_format,
+            &bytes::Bytes::from(file),
+        )
         .await?;
     if expected.matches_actual(&resp) {
         Ok(())
