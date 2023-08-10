@@ -1,6 +1,14 @@
-use std::sync::Arc;
+use std::{io::Cursor, sync::Arc, time::Duration};
 
+use camino::Utf8Path;
+use kittycad::types::{
+    ModelingCmd, OkModelingCmdResponse, OkWebSocketResponseData, PathSegment, Point3D,
+    WebSocketRequest, WebSocketResponse,
+};
 use slog::{o, Logger};
+use tokio::time::error::Elapsed;
+use tokio_tungstenite::tungstenite::Message as WsMsg;
+use uuid::Uuid;
 
 use crate::probe::{Endpoint, Probe, ProbeMass};
 
@@ -39,7 +47,7 @@ pub async fn run_loop(
 
 /// Runs the probe and reports its results (via logs and metrics).
 async fn run_and_report(probe: Probe, client: Arc<kittycad::Client>, logger: Logger) {
-    let result = probe_endpoint(probe, client).await;
+    let result = probe_endpoint(probe, client, logger.clone()).await;
     match result {
         Ok(()) => {
             slog::info!(logger, "probe succeeded");
@@ -53,7 +61,11 @@ async fn run_and_report(probe: Probe, client: Arc<kittycad::Client>, logger: Log
 /// Probe the specified API endpoint, check it returns the expected response.
 /// The probe could fail because the API is unavailable, or because it gave an unexpected result.
 /// If this returns OK, the endpoint is "healthy". Otherwise there's a problem.
-pub async fn probe_endpoint(probe: Probe, client: Arc<kittycad::Client>) -> Result<(), Error> {
+pub async fn probe_endpoint(
+    probe: Probe,
+    client: Arc<kittycad::Client>,
+    logger: Logger,
+) -> Result<(), Error> {
     match probe.endpoint {
         Endpoint::FileMass { file_path, probe } => {
             let file = tokio::fs::read(file_path).await.unwrap();
@@ -63,7 +75,190 @@ pub async fn probe_endpoint(probe: Probe, client: Arc<kittycad::Client>) -> Resu
             let _pong = client.meta().ping().await?;
             Ok(())
         }
+        Endpoint::ModelingWebsocket { img_output_path } => {
+            probe_modeling_websocket(client, logger, &img_output_path).await
+        }
     }
+}
+
+#[autometrics::autometrics]
+async fn probe_modeling_websocket(
+    client: Arc<kittycad::Client>,
+    log: Logger,
+    img_output_path: &Utf8Path,
+) -> Result<(), Error> {
+    use futures::{SinkExt, StreamExt};
+
+    let ws = client
+        .modeling()
+        .commands_ws(Some(30), Some(false), Some(480), Some(640), Some(false))
+        .await?;
+    let (mut write, mut read) = tokio_tungstenite::WebSocketStream::from_raw_socket(
+        ws,
+        tokio_tungstenite::tungstenite::protocol::Role::Client,
+        None,
+    )
+    .await
+    .split();
+
+    let to_msg = |cmd, cmd_id| {
+        WsMsg::Text(
+            serde_json::to_string(&WebSocketRequest::ModelingCmdReq { cmd, cmd_id }).unwrap(),
+        )
+    };
+
+    // Start a path
+    let path_id = Uuid::new_v4();
+    write
+        .send(to_msg(ModelingCmd::StartPath {}, path_id))
+        .await
+        .unwrap();
+
+    const WIDTH: f64 = 10.0;
+    // Draw the path in a square shape.
+    let start = Point3D {
+        x: -WIDTH,
+        y: -WIDTH,
+        z: -WIDTH,
+    };
+
+    write
+        .send(to_msg(
+            ModelingCmd::MovePathPen {
+                path: path_id,
+                to: start.clone(),
+            },
+            Uuid::new_v4(),
+        ))
+        .await
+        .unwrap();
+
+    let points = [
+        Point3D {
+            x: WIDTH,
+            y: -WIDTH,
+            z: -WIDTH,
+        },
+        Point3D {
+            x: WIDTH,
+            y: WIDTH,
+            z: -WIDTH,
+        },
+        Point3D {
+            x: -WIDTH,
+            y: WIDTH,
+            z: -WIDTH,
+        },
+        start,
+    ];
+    for point in points {
+        write
+            .send(to_msg(
+                ModelingCmd::ExtendPath {
+                    path: path_id,
+                    segment: PathSegment::Line { end: point },
+                },
+                Uuid::new_v4(),
+            ))
+            .await
+            .unwrap();
+    }
+
+    // Extrude the square into a cube.
+    write
+        .send(to_msg(ModelingCmd::ClosePath { path_id }, Uuid::new_v4()))
+        .await
+        .unwrap();
+    write
+        .send(to_msg(
+            ModelingCmd::Extrude {
+                cap: true,
+                distance: WIDTH * 2.0,
+                target: path_id,
+            },
+            Uuid::new_v4(),
+        ))
+        .await
+        .unwrap();
+    write
+        .send(to_msg(
+            ModelingCmd::TakeSnapshot {
+                format: kittycad::types::ImageFormat::Png,
+            },
+            Uuid::new_v4(),
+        ))
+        .await
+        .unwrap();
+
+    // Finish sending
+    drop(write);
+
+    fn ws_resp_from_text(text: &str) -> Result<OkWebSocketResponseData, Error> {
+        let j: WebSocketResponse = serde_json::from_str(&text)?;
+        if !j.success {
+            let Some(err) = j.errors.unwrap_or_default().pop() else {
+                return Err(Error::UnexpectedApiResponse {
+                    expected: "success = false means errors nonempty".to_owned(),
+                    actual: "errors were empty".to_owned(),
+                });
+            };
+            return Err(Error::UnexpectedApiResponse {
+                expected: "success only".to_owned(),
+                actual: format!("{err}"),
+            });
+        }
+        let Some(resp) = j.resp else {
+            return Err(Error::UnexpectedApiResponse {
+                expected: ".resp to be Some".to_owned(),
+                actual: ".resp was None".to_owned(),
+            });
+        };
+        Ok(resp)
+    }
+
+    fn text_from_ws(msg: WsMsg) -> Result<Option<String>, Error> {
+        match msg {
+            WsMsg::Text(text) => Ok(Some(text)),
+            WsMsg::Pong(_) => Ok(None),
+            other => Err(Error::UnexpectedApiResponse {
+                expected: "only text responses".to_owned(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    // Get Websocket messages from API server
+    let server_responses = async move {
+        while let Some(msg) = read.next().await {
+            let Some(resp) = text_from_ws(msg?)? else {
+                continue;
+            };
+            let resp = ws_resp_from_text(&resp)?;
+            match resp {
+                OkWebSocketResponseData::Modeling { modeling_response } => {
+                    match modeling_response {
+                        OkModelingCmdResponse::Empty {} => {}
+                        OkModelingCmdResponse::TakeSnapshot { data } => {
+                            let mut img = image::io::Reader::new(Cursor::new(data.contents));
+                            img.set_format(image::ImageFormat::Png);
+                            let img = img.decode()?;
+                            img.save(img_output_path)?;
+                            break;
+                        }
+                        other => {
+                            slog::debug!(log, "Got a websocket response"; "resp" => ?other)
+                        }
+                    }
+                }
+                _ => {
+                    slog::debug!(log, "Got a websocket response"; "resp" => ?resp)
+                }
+            }
+        }
+        Ok::<_, Error>(())
+    };
+    tokio::time::timeout(Duration::from_secs(10), server_responses).await??;
+    Ok(())
 }
 
 #[autometrics::autometrics]
@@ -105,4 +300,16 @@ pub enum Error {
     ApiClient(#[from] kittycad::types::error::Error),
     #[error("KittyCAD API sent {actual} but probe expected {expected}")]
     UnexpectedApiResponse { expected: String, actual: String },
+    #[error("Error while reading from websocket connection with KittyCAD API: {0}")]
+    CouldNotReadWebsocket(#[from] tokio_tungstenite::tungstenite::Error),
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("Image error: {0}")]
+    Img(#[from] image::ImageError),
+    #[error("Websocket binary message did not deserialize into expected type")]
+    WebsocketBinaryDeserialization(#[from] bincode::Error),
+    #[error("Websocket text message did not deserialize into expected type")]
+    WebsocketTextDeserialization(#[from] serde_json::Error),
+    #[error("Timed out waiting for server to respond, in {0}")]
+    WebsocketTimeout(#[from] Elapsed),
 }

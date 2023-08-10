@@ -23,6 +23,9 @@ pub enum Endpoint {
         #[serde(flatten)]
         probe: ProbeMass,
     },
+    ModelingWebsocket {
+        img_output_path: Utf8PathBuf,
+    },
     Ping,
 }
 
