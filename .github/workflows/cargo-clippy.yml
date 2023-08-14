@@ -41,11 +41,11 @@ jobs:
           required-permission: write
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - if: steps.check_permissions.outputs.has-permission
+      - name: Run clippy with annotations
+        if: !steps.check_permissions.outputs.has-permission
         uses: actions-rs/clippy-check@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          args: --all
+          args: --all --tests
       - name: Run clippy manually without annotations
-        if: ${{ !steps.check_permissions.outputs.has-permission }}
         run: cargo clippy --all --tests -- -D warnings
