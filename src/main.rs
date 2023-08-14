@@ -1,5 +1,6 @@
 use camino::Utf8Path;
 use config::Config;
+use hyper::header::{self, CACHE_CONTROL};
 use run_loop::run_loop;
 use slog::{info, Logger};
 use std::{fs::read_to_string, time::Duration};
@@ -69,9 +70,12 @@ fn new_logger(json: bool) -> Logger {
 
 fn make_client(config: &Config, api_token: String) -> kittycad::Client {
     fn base_client() -> reqwest::ClientBuilder {
+        let mut headers = header::HeaderMap::new();
+        headers.insert(CACHE_CONTROL, header::HeaderValue::from_static("no-cache"));
         reqwest::Client::builder()
             .timeout(Duration::from_secs(60))
             .user_agent("apimon")
+            .default_headers(headers)
     }
     let http = base_client();
     let websocket = base_client().http1_only();
