@@ -1,7 +1,8 @@
 use camino::Utf8Path;
+use config::Config;
 use run_loop::run_loop;
 use slog::{info, Logger};
-use std::fs::read_to_string;
+use std::{fs::read_to_string, time::Duration};
 
 mod args;
 mod config;
@@ -24,12 +25,8 @@ async fn main() {
     // Start the metrics server
     tokio::task::spawn(metrics::serve(config.metrics_addr, logger.clone()));
 
-    // Run the probes
-    let mut client = kittycad::Client::new(api_token);
-    if let Some(ref url) = config.base_url {
-        client.set_base_url(url);
-    }
-    run_loop(client, config, probes, logger).await;
+    // Run the probe
+    run_loop(make_client(&config, api_token), config, probes, logger).await;
 }
 
 /// Terminates if data is missing or invalid.
@@ -68,4 +65,19 @@ fn new_logger(json: bool) -> Logger {
         let async_drain = Async::new(drain).build().fuse();
         Logger::root(async_drain, slog::o!())
     }
+}
+
+fn make_client(config: &Config, api_token: String) -> kittycad::Client {
+    fn base_client() -> reqwest::ClientBuilder {
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(60))
+            .user_agent("apimon")
+    }
+    let http = base_client();
+    let websocket = base_client().http1_only();
+    let mut client = kittycad::Client::new_from_reqwest(api_token, http, websocket);
+    if let Some(ref url) = config.base_url {
+        client.set_base_url(url);
+    }
+    client
 }
