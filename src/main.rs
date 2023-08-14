@@ -1,6 +1,6 @@
 use camino::Utf8Path;
 use config::Config;
-use hyper::header::{self, CACHE_CONTROL};
+use hyper::header::{self, CACHE_CONTROL, CONNECTION};
 use run_loop::run_loop;
 use slog::{info, Logger};
 use std::{fs::read_to_string, time::Duration};
@@ -76,6 +76,7 @@ fn make_client(config: &Config, api_token: String) -> kittycad::Client {
             .timeout(Duration::from_secs(60))
             .user_agent("apimon")
             .default_headers(headers)
+            .connect_timeout(Duration::from_secs(5))
     }
     let http = base_client();
     let websocket = base_client().http1_only();
