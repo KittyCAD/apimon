@@ -1,6 +1,6 @@
 use camino::Utf8Path;
 use config::Config;
-use hyper::header::{self, CACHE_CONTROL, CONNECTION};
+use hyper::header::{self, CACHE_CONTROL};
 use run_loop::run_loop;
 use slog::{info, Logger};
 use std::{fs::read_to_string, time::Duration};
