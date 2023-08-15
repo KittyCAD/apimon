@@ -69,15 +69,16 @@ fn new_logger(json: bool) -> Logger {
 }
 
 fn make_client(config: &Config, api_token: String) -> kittycad::Client {
-    fn base_client() -> reqwest::ClientBuilder {
+    let user_agent = config.user_agent.to_owned();
+    let base_client = || {
         let mut headers = header::HeaderMap::new();
         headers.insert(CACHE_CONTROL, header::HeaderValue::from_static("no-cache"));
         reqwest::Client::builder()
             .timeout(Duration::from_secs(60))
-            .user_agent("apimon")
+            .user_agent(user_agent.clone())
             .default_headers(headers)
             .connect_timeout(Duration::from_secs(5))
-    }
+    };
     let http = base_client();
     let websocket = base_client().http1_only();
     let mut client = kittycad::Client::new_from_reqwest(api_token, http, websocket);
