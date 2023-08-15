@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use reqwest::Url;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -7,7 +8,7 @@ pub struct Config {
     pub period: Duration,
     pub user_agent: String,
     pub metrics_addr: std::net::SocketAddr,
-    pub base_url: Option<String>,
+    pub base_url: Option<Url>,
     pub log_json: bool,
 }
 

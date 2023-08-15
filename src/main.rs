@@ -83,7 +83,7 @@ fn make_client(config: &Config, api_token: String) -> kittycad::Client {
     let websocket = base_client().http1_only();
     let mut client = kittycad::Client::new_from_reqwest(api_token, http, websocket);
     if let Some(ref url) = config.base_url {
-        client.set_base_url(url);
+        client.set_base_url(url.to_string());
     }
     client
 }
