@@ -4,8 +4,8 @@ use camino::Utf8Path;
 use futures::TryFutureExt;
 use hyper::StatusCode;
 use kittycad::types::{
-    ModelingCmd, OkModelingCmdResponse, OkWebSocketResponseData, PathSegment, Point3D,
-    WebSocketRequest, WebSocketResponse,
+    FailureWebSocketResponse, ModelingCmd, OkModelingCmdResponse, OkWebSocketResponseData,
+    PathSegment, Point3D, SuccessWebSocketResponse, WebSocketRequest,
 };
 use slog::{o, Logger};
 use tokio::time::error::Elapsed;
@@ -194,25 +194,25 @@ async fn probe_modeling_websocket(
 
     fn ws_resp_from_text(text: &str) -> Result<OkWebSocketResponseData, Error> {
         let resp: WebSocketResponse = serde_json::from_str(text)?;
-        if !resp.success {
-            let Some(err) = resp.errors.unwrap_or_default().pop() else {
-                return Err(Error::UnexpectedApiResponse {
-                    expected: "success = false means errors nonempty".to_owned(),
-                    actual: "errors were empty".to_owned(),
-                });
-            };
-            return Err(Error::UnexpectedApiResponse {
-                expected: "success only".to_owned(),
-                actual: format!("{err}"),
-            });
+        match resp {
+            WebSocketResponse::Success(s) => {
+                assert!(s.success);
+                Ok(s.resp)
+            }
+            WebSocketResponse::Failure(mut f) => {
+                assert!(!f.success);
+                let Some(err) = f.errors.pop() else {
+                    return Err(Error::UnexpectedApiResponse {
+                        expected: "success = false means errors nonempty".to_owned(),
+                        actual: "errors were empty".to_owned(),
+                    });
+                };
+                Err(Error::UnexpectedApiResponse {
+                    expected: "success only".to_owned(),
+                    actual: format!("{err}"),
+                })
+            }
         }
-        let Some(resp) = resp.resp else {
-            return Err(Error::UnexpectedApiResponse {
-                expected: ".resp to be Some".to_owned(),
-                actual: ".resp was None".to_owned(),
-            });
-        };
-        Ok(resp)
     }
 
     fn text_from_ws(msg: WsMsg) -> Result<Option<String>, Error> {
@@ -381,4 +381,11 @@ impl Error {
             other => Self::ApiClient(other),
         }
     }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum WebSocketResponse {
+    Success(SuccessWebSocketResponse),
+    Failure(FailureWebSocketResponse),
 }
