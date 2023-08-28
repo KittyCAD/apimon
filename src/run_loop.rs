@@ -12,12 +12,8 @@ use uuid::Uuid;
 
 use crate::probe::{Endpoint, Probe, ProbeMass};
 
-pub async fn run_loop(
-    client: kittycad::Client,
-    config: crate::config::Config,
-    probes: Vec<crate::probe::Probe>,
-    logger: Logger,
-) {
+pub async fn run_loop(client: kittycad::Client, config: crate::config::Config, logger: Logger) {
+    let probes = config.probes;
     let n = probes.len();
     let client = Arc::new(client);
     loop {

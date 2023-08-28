@@ -62,14 +62,3 @@ impl ExpectedFileMass {
             && self.src_format == actual.src_format
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn validate_yaml() {
-        let data = include_bytes!("../configuration/probes.yaml");
-        let _data: Vec<Probe> = serde_yaml::from_slice(data).unwrap();
-    }
-}

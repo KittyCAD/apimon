@@ -19,7 +19,6 @@ async fn main() {
     let logger = new_logger(config.log_json);
     info!(logger, "starting"; "config" => ?config);
 
-    let probes = read_probes(&args.probes_file);
     let api_token = std::env::var("KITTYCAD_API_TOKEN")
         .unwrap_or_else(|e| terminate(&format!("Failed to read KITTYCAD_API_TOKEN: {e}")));
 
@@ -27,7 +26,7 @@ async fn main() {
     tokio::task::spawn(metrics::serve(config.metrics_addr, logger.clone()));
 
     // Run the probe
-    run_loop(make_client(&config, api_token), config, probes, logger).await;
+    run_loop(make_client(&config, api_token), config, logger).await;
 }
 
 /// Terminates if data is missing or invalid.
@@ -36,14 +35,6 @@ fn read_config(config_path: &Utf8Path) -> config::Config {
         .unwrap_or_else(|e| terminate(&format!("Failed to read {config_path}: {e}")));
     serde_yaml::from_str(&config_file)
         .unwrap_or_else(|e| terminate(&format!("Failed to parse {config_path}: {e}")))
-}
-
-/// Terminates if data is missing or invalid.
-fn read_probes(probes_path: &Utf8Path) -> Vec<probe::Probe> {
-    let probes_file = read_to_string(probes_path)
-        .unwrap_or_else(|e| terminate(&format!("Failed to read {probes_path}: {e}")));
-    serde_yaml::from_str(&probes_file)
-        .unwrap_or_else(|e| terminate(&format!("Failed to parse {probes_path}: {e}")))
 }
 
 fn terminate(why: &str) -> ! {

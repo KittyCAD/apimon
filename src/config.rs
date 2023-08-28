@@ -3,6 +3,8 @@ use std::time::Duration;
 use reqwest::Url;
 use serde::Deserialize;
 
+use crate::probe::Probe;
+
 #[derive(Debug, Deserialize)]
 pub struct Config {
     pub period: Duration,
@@ -10,6 +12,7 @@ pub struct Config {
     pub metrics_addr: std::net::SocketAddr,
     pub base_url: Option<Url>,
     pub log_json: bool,
+    pub probes: Vec<Probe>,
 }
 
 #[cfg(test)]
