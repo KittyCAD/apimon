@@ -117,13 +117,14 @@ checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
 
 [[package]]
 name = "autometrics"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6fd5718a452b060adfb2402004a5ebd67ea90e926da637259748de0ca654ea37"
+checksum = "95cef5eb1e18adfb843202bf71587174e480ed67c0ca3e976bf40e82d9adce86"
 dependencies = [
  "autometrics-macros",
  "cfg_aliases",
  "http",
+ "linkme",
  "metrics-exporter-prometheus",
  "once_cell",
  "opentelemetry-prometheus",
@@ -136,9 +137,9 @@ dependencies = [
 
 [[package]]
 name = "autometrics-macros"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0beb4214dae229373b9f437afe2c954a1c8cfb8a64ac753a47285a759ae80284"
+checksum = "543250f01aa62c3b2666e327b335be532845a35e440eb984f5e6bad69106833d"
 dependencies = [
  "percent-encoding",
  "proc-macro2",
@@ -358,19 +359,6 @@ checksum = "1bfb12502f3fc46cca1bb51ac28df9d618d813cdc3d2f25b9fe775a34af26bb3"
 dependencies = [
  "generic-array",
  "typenum",
-]
-
-[[package]]
-name = "dashmap"
-version = "5.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "edd72493923899c6f10c641bdbdeddc7183d6396641d99c1a0d1597f37f92e28"
-dependencies = [
- "cfg-if",
- "hashbrown 0.14.0",
- "lock_api",
- "once_cell",
- "parking_lot_core 0.9.8",
 ]
 
 [[package]]
@@ -969,6 +957,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0717cef1bc8b636c6e1c1bbdefc09e6322da8a9321966e8928ef80d20f7f770f"
 
 [[package]]
+name = "linkme"
+version = "0.3.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f948366ad5bb46b5514ba7a7a80643726eef08b06632592699676748c8bc33b"
+dependencies = [
+ "linkme-impl",
+]
+
+[[package]]
+name = "linkme-impl"
+version = "0.3.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc28438cad73dcc90ff3466fc329a9252b1b8ba668eb0d5668ba97088cf4eef0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.29",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1288,36 +1296,28 @@ dependencies = [
 ]
 
 [[package]]
-name = "opentelemetry"
-version = "0.19.0"
+name = "opentelemetry-prometheus"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f4b8347cc26099d3aeee044065ecc3ae11469796b4d65d065a23a584ed92a6f"
+checksum = "c7d81bc254e2d572120363a2b16cdb0d715d301b5789be0cfc26ad87e4e10e53"
 dependencies = [
+ "once_cell",
  "opentelemetry_api",
  "opentelemetry_sdk",
-]
-
-[[package]]
-name = "opentelemetry-prometheus"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a9f186f6293ebb693caddd0595e66b74a6068fa51048e26e0bf9c95478c639c"
-dependencies = [
- "opentelemetry 0.19.0",
  "prometheus",
  "protobuf",
 ]
 
 [[package]]
 name = "opentelemetry_api"
-version = "0.19.0"
+version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed41783a5bf567688eb38372f2b7a8530f5a607a4b49d38dd7573236c23ca7e2"
+checksum = "8a81f725323db1b1206ca3da8bb19874bbd3f57c3bcd59471bfb04525b265b9b"
 dependencies = [
- "fnv",
  "futures-channel",
  "futures-util",
  "indexmap 1.9.3",
+ "js-sys",
  "once_cell",
  "pin-project-lite",
  "thiserror",
@@ -1326,22 +1326,28 @@ dependencies = [
 
 [[package]]
 name = "opentelemetry_sdk"
-version = "0.19.0"
+version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b3a2a91fdbfdd4d212c0dcc2ab540de2c2bcbbd90be17de7a7daf8822d010c1"
+checksum = "fa8e705a0612d48139799fcbaba0d4a90f06277153e43dd2bdc16c6f0edd8026"
 dependencies = [
  "async-trait",
- "crossbeam-channel",
- "dashmap",
- "fnv",
  "futures-channel",
  "futures-executor",
  "futures-util",
  "once_cell",
  "opentelemetry_api",
- "percent-encoding",
- "rand",
+ "ordered-float",
+ "regex",
  "thiserror",
+]
+
+[[package]]
+name = "ordered-float"
+version = "3.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a54938017eacd63036332b4ae5c8a49fc8c0c1d6d629893057e4f13609edd06"
+dependencies = [
+ "num-traits",
 ]
 
 [[package]]
@@ -1818,7 +1824,7 @@ dependencies = [
  "async-trait",
  "getrandom",
  "matchit",
- "opentelemetry 0.17.0",
+ "opentelemetry",
  "reqwest",
  "reqwest-middleware",
  "task-local-extensions",
@@ -2486,7 +2492,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fbbe89715c1dbbb790059e2565353978564924ee85017b5fff365c872ff6721f"
 dependencies = [
  "once_cell",
- "opentelemetry 0.17.0",
+ "opentelemetry",
  "tracing",
  "tracing-core",
  "tracing-log",
