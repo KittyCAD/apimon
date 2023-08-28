@@ -1,6 +1,8 @@
 use std::{io::Cursor, sync::Arc, time::Duration};
 
 use camino::Utf8Path;
+use futures::TryFutureExt;
+use hyper::StatusCode;
 use kittycad::types::{
     ModelingCmd, OkModelingCmdResponse, OkWebSocketResponseData, PathSegment, Point3D,
     WebSocketRequest, WebSocketResponse,
@@ -68,7 +70,7 @@ pub async fn probe_endpoint(
             probe_file_mass(file, probe, client).await
         }
         Endpoint::Ping => {
-            let _pong = client.meta().ping().await?;
+            let _pong = client.meta().ping().or_else(wrap_kc).await?;
             Ok(())
         }
         Endpoint::ModelingWebsocket { img_output_path } => {
@@ -88,6 +90,7 @@ async fn probe_modeling_websocket(
     let ws = client
         .modeling()
         .commands_ws(Some(30), Some(false), Some(480), Some(640), Some(false))
+        .or_else(wrap_kc)
         .await?;
     let (mut write, mut read) = tokio_tungstenite::WebSocketStream::from_raw_socket(
         ws,
@@ -190,9 +193,9 @@ async fn probe_modeling_websocket(
     drop(write);
 
     fn ws_resp_from_text(text: &str) -> Result<OkWebSocketResponseData, Error> {
-        let j: WebSocketResponse = serde_json::from_str(&text)?;
-        if !j.success {
-            let Some(err) = j.errors.unwrap_or_default().pop() else {
+        let resp: WebSocketResponse = serde_json::from_str(text)?;
+        if !resp.success {
+            let Some(err) = resp.errors.unwrap_or_default().pop() else {
                 return Err(Error::UnexpectedApiResponse {
                     expected: "success = false means errors nonempty".to_owned(),
                     actual: "errors were empty".to_owned(),
@@ -203,7 +206,7 @@ async fn probe_modeling_websocket(
                 actual: format!("{err}"),
             });
         }
-        let Some(resp) = j.resp else {
+        let Some(resp) = resp.resp else {
             return Err(Error::UnexpectedApiResponse {
                 expected: ".resp to be Some".to_owned(),
                 actual: ".resp was None".to_owned(),
@@ -278,6 +281,7 @@ async fn probe_file_mass(
             src_format,
             &bytes::Bytes::from(file),
         )
+        .or_else(wrap_kc)
         .await?;
     if expected.matches_actual(&resp) {
         Ok(())
@@ -289,11 +293,33 @@ async fn probe_file_mass(
     }
 }
 
+/// Different kinds of body that could come from a KittyCAD API client.
+#[derive(Debug)]
+pub enum Body {
+    Json(serde_json::Value),
+    Text(String),
+    Binary,
+    BodyError(reqwest::Error),
+}
+
+impl std::fmt::Display for Body {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Body::Json(c) => c.fmt(f),
+            Body::Text(s) => s.fmt(f),
+            Body::Binary => "[binary]".fmt(f),
+            Body::BodyError(e) => e.fmt(f),
+        }
+    }
+}
+
 /// Errors the probe can detect.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    #[error("KittyCAD API client returned an unexpected response: HTTP {status:?}: {body}")]
+    ApiClientUnexpectedResponse { status: StatusCode, body: Body },
     #[error("KittyCAD API client returned an error: {0}")]
-    ApiClient(#[from] kittycad::types::error::Error),
+    ApiClient(kittycad::types::error::Error),
     #[error("KittyCAD API sent {actual} but probe expected {expected}")]
     UnexpectedApiResponse { expected: String, actual: String },
     #[error("Error while reading from websocket connection with KittyCAD API: {0}")]
@@ -308,4 +334,51 @@ pub enum Error {
     WebsocketTextDeserialization(#[from] serde_json::Error),
     #[error("Timed out waiting for server to respond, in {0}")]
     WebsocketTimeout(#[from] Elapsed),
+}
+
+/// Wrapper around `from_kc_err` to simplify callsites with .or_else method.
+async fn wrap_kc<T>(e: kittycad::types::error::Error) -> Result<T, Error> {
+    Err(Error::from_kc_err(e).await)
+}
+
+impl Error {
+    // There are several different ways a KittyCAD API client error
+    // could be mapped to Apimon errors. So simply putting a #[from]
+    // wouldn't be enough.
+    // And because this function is async, we can't just impl From,
+    // which is inherently synchronous.
+    async fn from_kc_err(e: kittycad::types::error::Error) -> Self {
+        match e {
+            kittycad::types::error::Error::UnexpectedResponse(r) => {
+                // It actually takes a lot of work to get a useful readable body from this API.
+                let status = r.status();
+                let body = match r.bytes().await {
+                    Ok(b) => b,
+                    Err(e) => {
+                        return Self::ApiClientUnexpectedResponse {
+                            status,
+                            body: Body::BodyError(e),
+                        }
+                    }
+                };
+                let Ok(str) = std::str::from_utf8(&body) else {
+                    return Self::ApiClientUnexpectedResponse {
+                        status,
+                        body: Body::Binary,
+                    };
+                };
+                let Ok(json) = serde_json::from_str::<serde_json::Value>(str) else {
+                    return Self::ApiClientUnexpectedResponse {
+                        status,
+                        body: Body::Text(str.to_owned()),
+                    };
+                };
+                Self::ApiClientUnexpectedResponse {
+                    status,
+                    body: Body::Json(json),
+                }
+            }
+            other => Self::ApiClient(other),
+        }
+    }
 }
