@@ -804,8 +804,8 @@ dependencies = [
 
 [[package]]
 name = "kittycad"
-version = "0.2.14"
-source = "git+https://github.com/KittyCAD/kittycad.rs?branch=main#cfc9ed3ce77b40f67eb7470935b5c1fd0308dc3e"
+version = "0.2.20"
+source = "git+https://github.com/KittyCAD/kittycad.rs?branch=main#df3afc733710664191eb73be93fc1c3e1f1800f8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -818,9 +818,7 @@ dependencies = [
  "http",
  "itertools",
  "log",
- "mime",
  "parse-display",
- "percent-encoding",
  "phonenumber",
  "rand",
  "reqwest",
@@ -833,7 +831,6 @@ dependencies = [
  "serde_json",
  "serde_urlencoded",
  "thiserror",
- "tokio",
  "tracing",
  "url",
  "uuid",
