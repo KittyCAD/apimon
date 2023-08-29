@@ -906,8 +906,8 @@ dependencies = [
 
 [[package]]
 name = "kittycad"
-version = "0.2.20"
-source = "git+https://github.com/KittyCAD/kittycad.rs?branch=main#6a2632fedbeb789ccdebdda1a115960303e74fc7"
+version = "0.2.21"
+source = "git+https://github.com/KittyCAD/kittycad.rs?branch=main#616851dcf331a1ac516ba7f2c08966a71ccf1117"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -930,6 +930,7 @@ dependencies = [
  "reqwest-tracing",
  "schemars",
  "serde",
+ "serde_bytes",
  "serde_json",
  "serde_urlencoded",
  "thiserror",
@@ -2003,6 +2004,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf9e0fcba69a370eed61bcf2b728575f726b50b55cba78064753d708ddc7549e"
 dependencies = [
  "serde_derive",
+]
+
+[[package]]
+name = "serde_bytes"
+version = "0.11.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab33ec92f677585af6d88c65593ae2375adde54efdbf16d597f2cbc7a6d368ff"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
