@@ -12,7 +12,13 @@ pub struct Config {
     pub metrics_addr: std::net::SocketAddr,
     pub base_url: Option<Url>,
     pub log_json: bool,
+    #[serde(default = "is_pope_catholic")]
+    pub append_git_hash_to_user_agent: bool,
     pub probes: Vec<Probe>,
+}
+
+fn is_pope_catholic() -> bool {
+    true
 }
 
 #[cfg(test)]
