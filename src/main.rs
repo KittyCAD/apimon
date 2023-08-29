@@ -60,7 +60,11 @@ fn new_logger(json: bool) -> Logger {
 }
 
 fn make_client(config: &Config, api_token: String) -> kittycad::Client {
-    let user_agent = config.user_agent.to_owned();
+    let mut user_agent = config.user_agent.to_owned();
+    if config.append_git_hash_to_user_agent {
+        let hash = env!("VERGEN_GIT_SHA");
+        user_agent = format!("{user_agent}-{hash}");
+    }
     let base_client = || {
         let mut headers = header::HeaderMap::new();
         headers.insert(CACHE_CONTROL, header::HeaderValue::from_static("no-cache"));
