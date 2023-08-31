@@ -69,14 +69,17 @@ pub async fn probe_endpoint(
             let file = tokio::fs::read(file_path).await.unwrap();
             probe_file_mass(file, probe, client).await
         }
-        Endpoint::Ping => {
-            let _pong = client.meta().ping().or_else(wrap_kc).await?;
-            Ok(())
-        }
+        Endpoint::Ping => probe_ping(client).await,
         Endpoint::ModelingWebsocket { img_output_path } => {
             probe_modeling_websocket(client, logger, &img_output_path).await
         }
     }
+}
+
+#[autometrics::autometrics]
+async fn probe_ping(client: Arc<kittycad::Client>) -> Result<(), Error> {
+    let _pong = client.meta().ping().or_else(wrap_kc).await?;
+    Ok(())
 }
 
 #[autometrics::autometrics]
