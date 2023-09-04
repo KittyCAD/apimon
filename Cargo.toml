@@ -30,7 +30,7 @@ slog = "2.7.0"
 slog-async = "2.7.0"
 slog-json = "2.6.1"
 slog-term = "2.9.0"
-thiserror = "1.0.47"
+thiserror = "1.0.48"
 tokio = { version = "1.32.0", features = ["macros", "rt-multi-thread", "fs"] }
 tokio-tungstenite = "0.20.0"
 uuid = "1.4.1"
