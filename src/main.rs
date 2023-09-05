@@ -47,15 +47,16 @@ fn terminate(why: &str) -> ! {
 fn new_logger(json: bool) -> Logger {
     use slog::Drain;
     use slog_async::Async;
+    let fields = slog::o!("git_hash" => env!("VERGEN_GIT_SHA"));
     if json {
         let drain = slog_json::Json::default(std::io::stderr()).fuse();
         let async_drain = Async::new(drain).build().fuse();
-        Logger::root(async_drain, slog::o!())
+        Logger::root(async_drain, fields)
     } else {
         let decorator = slog_term::TermDecorator::new().build();
         let drain = slog_term::FullFormat::new(decorator).build().fuse();
         let async_drain = Async::new(drain).build().fuse();
-        Logger::root(async_drain, slog::o!())
+        Logger::root(async_drain, fields)
     }
 }
 

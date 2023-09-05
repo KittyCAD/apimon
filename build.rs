@@ -1,4 +1,4 @@
-const PROMETHEUS_URL: &str = "http://prometheus.hawk-dinosaur.ts.net/";
+const PROMETHEUS_URL: &str = "http://prometheus-corp-virginia.hawk-dinosaur.ts.net:9090/";
 
 fn main() {
     configure_autometrics();
