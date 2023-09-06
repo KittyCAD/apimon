@@ -267,6 +267,187 @@ async fn probe_modeling_websocket(
 }
 
 #[autometrics::autometrics]
+async fn probe_modeling_websocket_webrtc(
+    client: Arc<kittycad::Client>,
+    log: Logger,
+    img_output_path: &Utf8Path,
+) -> Result<(), Error> {
+    use futures::{SinkExt, StreamExt};
+
+    let ws = client
+        .modeling()
+        .commands_ws(Some(30), Some(false), Some(480), Some(640), Some(true))
+        .or_else(wrap_kc)
+        .await?;
+    let (mut write, mut read) = tokio_tungstenite::WebSocketStream::from_raw_socket(
+        ws,
+        tokio_tungstenite::tungstenite::protocol::Role::Client,
+        None,
+    )
+    .await
+    .split();
+
+    let to_msg = |cmd, cmd_id| {
+        WsMsg::Text(
+            serde_json::to_string(&WebSocketRequest::ModelingCmdReq { cmd, cmd_id }).unwrap(),
+        )
+    };
+
+    // Start a path
+    let path_id = Uuid::new_v4();
+    write
+        .send(to_msg(ModelingCmd::StartPath {}, path_id))
+        .await
+        .unwrap();
+
+    const WIDTH: f64 = 10.0;
+    // Draw the path in a square shape.
+    let start = Point3D {
+        x: -WIDTH,
+        y: -WIDTH,
+        z: -WIDTH,
+    };
+
+    write
+        .send(to_msg(
+            ModelingCmd::MovePathPen {
+                path: path_id,
+                to: start.clone(),
+            },
+            Uuid::new_v4(),
+        ))
+        .await
+        .unwrap();
+
+    let points = [
+        Point3D {
+            x: WIDTH,
+            y: -WIDTH,
+            z: -WIDTH,
+        },
+        Point3D {
+            x: WIDTH,
+            y: WIDTH,
+            z: -WIDTH,
+        },
+        Point3D {
+            x: -WIDTH,
+            y: WIDTH,
+            z: -WIDTH,
+        },
+        start,
+    ];
+    for point in points {
+        write
+            .send(to_msg(
+                ModelingCmd::ExtendPath {
+                    path: path_id,
+                    segment: PathSegment::Line { end: point },
+                },
+                Uuid::new_v4(),
+            ))
+            .await
+            .unwrap();
+    }
+
+    // Extrude the square into a cube.
+    write
+        .send(to_msg(ModelingCmd::ClosePath { path_id }, Uuid::new_v4()))
+        .await
+        .unwrap();
+    write
+        .send(to_msg(
+            ModelingCmd::Extrude {
+                cap: true,
+                distance: WIDTH * 2.0,
+                target: path_id,
+            },
+            Uuid::new_v4(),
+        ))
+        .await
+        .unwrap();
+    write
+        .send(to_msg(
+            ModelingCmd::TakeSnapshot {
+                format: kittycad::types::ImageFormat::Png,
+            },
+            Uuid::new_v4(),
+        ))
+        .await
+        .unwrap();
+
+    // Finish sending
+    drop(write);
+
+    fn ws_resp_from_text(text: &str) -> Result<OkWebSocketResponseData, Error> {
+        let resp: WebSocketResponse = serde_json::from_str(text)?;
+        match resp {
+            WebSocketResponse::Success(s) => {
+                assert!(s.success);
+                Ok(s.resp)
+            }
+            WebSocketResponse::Failure(mut f) => {
+                assert!(!f.success);
+                let Some(err) = f.errors.pop() else {
+                    return Err(Error::UnexpectedApiResponse {
+                        expected: "success = false means errors nonempty".to_owned(),
+                        actual: "errors were empty".to_owned(),
+                    });
+                };
+                Err(Error::UnexpectedApiResponse {
+                    expected: "success only".to_owned(),
+                    actual: format!("{err}"),
+                })
+            }
+        }
+    }
+
+    fn text_from_ws(msg: WsMsg) -> Result<Option<String>, Error> {
+        match msg {
+            WsMsg::Text(text) => Ok(Some(text)),
+            WsMsg::Pong(_) => Ok(None),
+            other => Err(Error::UnexpectedApiResponse {
+                expected: "only text responses".to_owned(),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+
+    // Get Websocket messages from API server
+    let server_responses = async move {
+        while let Some(msg) = read.next().await {
+            let Some(resp) = text_from_ws(msg?)? else {
+                continue;
+            };
+            let resp = ws_resp_from_text(&resp)?;
+            match resp {
+                OkWebSocketResponseData::Modeling { modeling_response } => {
+                    match modeling_response {
+                        OkModelingCmdResponse::Empty {} => {}
+                        OkModelingCmdResponse::TakeSnapshot { data } => {
+                            let mut img = image::io::Reader::new(Cursor::new(data.contents));
+                            img.set_format(image::ImageFormat::Png);
+                            let img = img.decode()?;
+                            img.save(img_output_path)?;
+                            break;
+                        }
+                        other => {
+                            slog::debug!(log, "Got a websocket response"; "resp" => ?other)
+                        }
+                    }
+                }
+                _ => {
+                    slog::debug!(log, "Got a websocket response"; "resp" => ?resp)
+                }
+            }
+        }
+        Ok::<_, Error>(())
+    };
+    tokio::time::timeout(Duration::from_secs(10), server_responses).await??;
+    Ok(())
+}
+
+#[autometrics::autometrics]
 async fn probe_file_mass(
     file: Vec<u8>,
     ProbeMass {
