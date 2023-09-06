@@ -1,16 +1,18 @@
 use std::{io::Cursor, sync::Arc, time::Duration};
 
+use async_mutex::Mutex;
 use camino::Utf8Path;
 use futures::TryFutureExt;
 use hyper::StatusCode;
 use kittycad::types::{
     FailureWebSocketResponse, ModelingCmd, OkModelingCmdResponse, OkWebSocketResponseData,
-    PathSegment, Point3D, SuccessWebSocketResponse, WebSocketRequest,
+    PathSegment, Point3D, RtcSessionDescription, SuccessWebSocketResponse, WebSocketRequest,
 };
 use slog::{o, Logger};
 use tokio::time::error::Elapsed;
 use tokio_tungstenite::tungstenite::Message as WsMsg;
 use uuid::Uuid;
+use webrtc::data_channel::{data_channel_message::DataChannelMessage, RTCDataChannel};
 
 use crate::probe::{Endpoint, Probe, ProbeMass};
 
@@ -287,6 +289,159 @@ async fn probe_modeling_websocket_webrtc(
     .await
     .split();
 
+    // Prepare the configuration.
+    let global_ice_servers = Arc::new(Mutex::new(vec![]));
+    let ice_servers = global_ice_servers.lock().await.clone();
+    println!("ICE servers: {:?}", ice_servers);
+    let config = webrtc::peer_connection::configuration::RTCConfiguration {
+        ice_servers,
+        ..Default::default()
+    };
+
+    // Create a MediaEngine object to configure the supported codec
+    let mut m = webrtc::api::media_engine::MediaEngine::default();
+
+    // Start the webrtc stuff.
+    // Setup the codecs you want to use.
+    m.register_codec(
+        webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecParameters {
+            capability: webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecCapability {
+                mime_type: webrtc::api::media_engine::MIME_TYPE_H264.to_owned(),
+                ..Default::default()
+            },
+            payload_type: 102,
+            ..Default::default()
+        },
+        webrtc::rtp_transceiver::rtp_codec::RTPCodecType::Video,
+    )?;
+
+    let mut registry = webrtc::interceptor::registry::Registry::new();
+
+    // Use the default set of Interceptors
+    registry = webrtc::api::interceptor_registry::register_default_interceptors(registry, &mut m)?;
+
+    // Create the API object with the MediaEngine
+    let api = webrtc::api::APIBuilder::new()
+        .with_media_engine(m)
+        .with_interceptor_registry(registry)
+        .build();
+
+    // Create a new RTCPeerConnection
+    let peer_connection = Arc::new(api.new_peer_connection(config).await?);
+
+    // Allow us to receive 1 audio track, and 1 video track
+    peer_connection
+        .add_transceiver_from_kind(
+            webrtc::rtp_transceiver::rtp_codec::RTPCodecType::Video,
+            None,
+        )
+        .await?;
+
+    // Continue setting up webRTC stuff.
+    // Set the handler for ICE connection state
+    // This will notify you when the peer has connected/disconnected
+    peer_connection.on_ice_connection_state_change(Box::new(
+        move |connection_state: webrtc::ice_transport::ice_connection_state::RTCIceConnectionState| {
+            println!("Connection State has changed {connection_state}");
+
+            if connection_state == webrtc::ice_transport::ice_connection_state::RTCIceConnectionState::Connected {
+                println!("Ctrl+C the remote client to stop the demo");
+            } else if connection_state == webrtc::ice_transport::ice_connection_state::RTCIceConnectionState::Failed {
+                panic!("Connection failed");
+            }
+            Box::pin(async {})
+        },
+    ));
+
+    let offer = peer_connection.create_offer(None).await?;
+    // Send the offer back to the remote.
+    let json_str = serde_json::to_string(&WebSocketRequest::SdpOffer {
+        offer: RtcSessionDescription {
+            sdp: offer.sdp.clone(),
+            type_: match &offer.sdp_type {
+                webrtc::peer_connection::sdp::sdp_type::RTCSdpType::Unspecified => {
+                    kittycad::types::RtcSdpType::Unspecified
+                }
+                webrtc::peer_connection::sdp::sdp_type::RTCSdpType::Offer => {
+                    kittycad::types::RtcSdpType::Offer
+                }
+                webrtc::peer_connection::sdp::sdp_type::RTCSdpType::Pranswer => {
+                    kittycad::types::RtcSdpType::Pranswer
+                }
+                webrtc::peer_connection::sdp::sdp_type::RTCSdpType::Answer => {
+                    kittycad::types::RtcSdpType::Answer
+                }
+                webrtc::peer_connection::sdp::sdp_type::RTCSdpType::Rollback => {
+                    kittycad::types::RtcSdpType::Rollback
+                }
+            },
+        },
+    })?;
+    write.send(WsMsg::Text(json_str)).await?;
+
+    // Set the remote SessionDescription
+    peer_connection.set_remote_description(offer).await?;
+
+    // Create an answer
+    let answer = peer_connection.create_answer(None).await?;
+
+    peer_connection.on_data_channel(Box::new(move |d: Arc<RTCDataChannel>| {
+        let d_label = d.label().to_owned();
+        let d_id = d.id();
+        let d2 = Arc::clone(&d);
+        println!("New DataChannel {d_label} {d_id}");
+
+        // Register channel opening handling
+        Box::pin(async move {
+            let d_label2 = d_label.clone();
+            let d_id2 = d_id;
+            d.on_open(Box::new(move || {
+                println!("Data channel '{d_label2}'-'{d_id2}' open.");
+
+                Box::pin(async move {
+                    let mut result = Result::<_, Error>::Ok(0);
+                    while result.is_ok() {
+                        let timeout = tokio::time::sleep(Duration::from_secs(5));
+                        tokio::pin!(timeout);
+
+                        tokio::select! {
+                            _ = timeout.as_mut() =>{
+                                let message = r#"{"weird_json": "yes"}"#;
+                                println!("Sending '{message}'");
+                                result = d2.send_text(message).await.map_err(Into::into);
+                            }
+                        };
+                    }
+                })
+            }));
+
+            // Register text message handling
+            d.on_message(Box::new(move |msg: DataChannelMessage| {
+                let msg_str = String::from_utf8(msg.data.to_vec()).unwrap();
+                println!("Message from DataChannel '{d_label}': '{msg_str}'");
+                Box::pin(async {})
+            }));
+        })
+    }));
+
+    // Create channel that is blocked until ICE Gathering is complete
+    let mut gather_complete = peer_connection.gathering_complete_promise().await;
+
+    // Sets the LocalDescription, and starts our UDP listeners
+    peer_connection.set_local_description(answer).await?;
+
+    // Block until ICE Gathering is complete, disabling trickle ICE
+    // we do this because we only can exchange one signaling message
+    // in a production application you should exchange ICE Candidates via OnICECandidate
+    let _ = gather_complete.recv().await;
+
+    if let Some(local_desc) = peer_connection.local_description().await {
+        let _description = serde_json::to_string(&local_desc)?;
+        println!("got local description");
+    } else {
+        panic!("getting local description failed");
+    }
+
     let to_msg = |cmd, cmd_id| {
         WsMsg::Text(
             serde_json::to_string(&WebSocketRequest::ModelingCmdReq { cmd, cmd_id }).unwrap(),
@@ -521,6 +676,8 @@ pub enum Error {
     WebsocketTextDeserialization(#[from] serde_json::Error),
     #[error("Timed out waiting for server to respond, in {0}")]
     WebsocketTimeout(#[from] Elapsed),
+    #[error("WebRTC error: {0}")]
+    WebRtcError(#[from] webrtc::Error),
 }
 
 /// Wrapper around `from_kc_err` to simplify callsites with .or_else method.
