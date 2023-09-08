@@ -9,10 +9,15 @@ use kittycad::types::{
     PathSegment, Point3D, RtcSessionDescription, SuccessWebSocketResponse, WebSocketRequest,
 };
 use slog::{o, Logger};
-use tokio::time::error::Elapsed;
+use tokio::{sync::Notify, time::error::Elapsed};
 use tokio_tungstenite::tungstenite::Message as WsMsg;
 use uuid::Uuid;
-use webrtc::data_channel::{data_channel_message::DataChannelMessage, RTCDataChannel};
+use webrtc::api::media_engine::MIME_TYPE_H264;
+use webrtc::{
+    data_channel::{data_channel_message::DataChannelMessage, RTCDataChannel},
+    peer_connection,
+    track::track_remote::TrackRemote,
+};
 
 use crate::probe::{Endpoint, Probe, ProbeMass};
 
@@ -268,6 +273,25 @@ async fn probe_modeling_websocket(
     Ok(())
 }
 
+async fn assert_video_frames(track: Arc<TrackRemote>, closed: Arc<Notify>) -> anyhow::Result<()> {
+    loop {
+        tokio::select! {
+            result = track.read_rtp() => {
+                if let Ok((rtp_packet, _)) = result {
+                    println!("Received a frame!");
+                }else{
+                    println!("Couldn't find a frame.");
+                    anyhow::bail!("Couldn't find a frame.");
+                }
+            }
+            _ = closed.notified() => {
+                println!("Video Closed!");
+                return Ok(());
+            }
+        }
+    }
+}
+
 #[autometrics::autometrics]
 async fn probe_modeling_websocket_webrtc(
     client: Arc<kittycad::Client>,
@@ -385,45 +409,6 @@ async fn probe_modeling_websocket_webrtc(
     // Create an answer
     let answer = peer_connection.create_answer(None).await?;
 
-    peer_connection.on_data_channel(Box::new(move |d: Arc<RTCDataChannel>| {
-        let d_label = d.label().to_owned();
-        let d_id = d.id();
-        let d2 = Arc::clone(&d);
-        println!("New DataChannel {d_label} {d_id}");
-
-        // Register channel opening handling
-        Box::pin(async move {
-            let d_label2 = d_label.clone();
-            let d_id2 = d_id;
-            d.on_open(Box::new(move || {
-                println!("Data channel '{d_label2}'-'{d_id2}' open.");
-
-                Box::pin(async move {
-                    let mut result = Result::<_, Error>::Ok(0);
-                    while result.is_ok() {
-                        let timeout = tokio::time::sleep(Duration::from_secs(5));
-                        tokio::pin!(timeout);
-
-                        tokio::select! {
-                            _ = timeout.as_mut() =>{
-                                let message = r#"{"weird_json": "yes"}"#;
-                                println!("Sending '{message}'");
-                                result = d2.send_text(message).await.map_err(Into::into);
-                            }
-                        };
-                    }
-                })
-            }));
-
-            // Register text message handling
-            d.on_message(Box::new(move |msg: DataChannelMessage| {
-                let msg_str = String::from_utf8(msg.data.to_vec()).unwrap();
-                println!("Message from DataChannel '{d_label}': '{msg_str}'");
-                Box::pin(async {})
-            }));
-        })
-    }));
-
     // Create channel that is blocked until ICE Gathering is complete
     let mut gather_complete = peer_connection.gathering_complete_promise().await;
 
@@ -441,6 +426,25 @@ async fn probe_modeling_websocket_webrtc(
     } else {
         panic!("getting local description failed");
     }
+
+    // Get Video Track
+    let notify_tx = Arc::new(Notify::new());
+    let notify_rx = notify_tx.clone();
+    peer_connection.on_track(Box::new(move |track, _, _| {
+        let notify_rx2 = Arc::clone(&notify_rx);
+        Box::pin(async move {
+            let codec = track.codec();
+            let mime_type = codec.capability.mime_type.to_lowercase();
+            if mime_type == MIME_TYPE_H264.to_lowercase() {
+                println!("Got h264 track, saving to disk as output.h264");
+                tokio::spawn(async move {
+                    let _ = assert_video_frames(track, notify_rx2).await;
+                });
+            } else {
+                panic!("");
+            }
+        })
+    }));
 
     let to_msg = |cmd, cmd_id| {
         WsMsg::Text(
@@ -599,6 +603,7 @@ async fn probe_modeling_websocket_webrtc(
         Ok::<_, Error>(())
     };
     tokio::time::timeout(Duration::from_secs(10), server_responses).await??;
+
     Ok(())
 }
 
