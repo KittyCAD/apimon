@@ -36,4 +36,4 @@ tokio-tungstenite = "0.20.0"
 uuid = "1.4.1"
 
 [build-dependencies]
-vergen = { version = "8.2.3", features = ["git", "gitcl"] }
+vergen = { version = "8.2.5", features = ["git", "gitcl"] }
