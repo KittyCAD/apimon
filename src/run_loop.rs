@@ -158,7 +158,10 @@ async fn probe_modeling_websocket(
             .send(to_msg(
                 ModelingCmd::ExtendPath {
                     path: path_id,
-                    segment: PathSegment::Line { end: point },
+                    segment: PathSegment::Line {
+                        end: point,
+                        relative: false,
+                    },
                 },
                 Uuid::new_v4(),
             ))
